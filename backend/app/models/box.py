@@ -7,7 +7,7 @@ from app.db.base import Base
 
 
 class Box(Base):
-    """A rectangular region on a document, in image-pixel coordinates.
+    """A rectangular region on a page, in page-image pixel coordinates.
 
     `source` distinguishes user-drawn boxes ("manual") from engine output ("ocr"),
     so the same model/UI serves both manual annotation and future OCR results.
@@ -16,8 +16,8 @@ class Box(Base):
     __tablename__ = "boxes"
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    document_id: Mapped[int] = mapped_column(
-        ForeignKey("documents.id", ondelete="CASCADE"), index=True, nullable=False
+    page_id: Mapped[int] = mapped_column(
+        ForeignKey("pages.id", ondelete="CASCADE"), index=True, nullable=False
     )
     x: Mapped[float] = mapped_column(Float, nullable=False)
     y: Mapped[float] = mapped_column(Float, nullable=False)
@@ -34,4 +34,4 @@ class Box(Base):
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
     )
 
-    document: Mapped["Document"] = relationship(back_populates="boxes")  # noqa: F821
+    page: Mapped["Page"] = relationship(back_populates="boxes")  # noqa: F821

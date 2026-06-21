@@ -1,87 +1,110 @@
-import { FormEvent, useState } from "react";
+import { FormEvent, ReactNode, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { loginRequest } from "../lib/api";
-import { useAuthStore } from "../stores/authStore";
+import { ScanText } from "lucide-react";
+import { toast } from "sonner";
+
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
+import { loginRequest } from "@/lib/api";
+import { useAuthStore } from "@/stores/authStore";
 
 export function LoginPage() {
   const navigate = useNavigate();
   const setToken = useAuthStore((s) => s.setToken);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
   async function onSubmit(e: FormEvent) {
     e.preventDefault();
-    setError(null);
     setLoading(true);
     try {
       const token = await loginRequest(email, password);
       setToken(token);
       navigate("/documents");
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Login failed");
+      toast.error(err instanceof Error ? err.message : "Login failed");
     } finally {
       setLoading(false);
     }
   }
 
   return (
-    <AuthShell title="Sign in">
-      <form onSubmit={onSubmit} className="space-y-4">
-        <Field label="Email" type="email" value={email} onChange={setEmail} />
-        <Field label="Password" type="password" value={password} onChange={setPassword} />
-        {error && <p className="text-sm text-red-600">{error}</p>}
-        <button
-          type="submit"
-          disabled={loading}
-          className="w-full rounded-md bg-indigo-600 py-2 font-medium text-white hover:bg-indigo-700 disabled:opacity-50"
-        >
-          {loading ? "Signing in…" : "Sign in"}
-        </button>
-      </form>
-      <p className="mt-4 text-center text-sm text-slate-500">
-        No account?{" "}
-        <Link to="/register" className="text-indigo-600 hover:underline">
-          Register
-        </Link>
-      </p>
-    </AuthShell>
+    <AuthLayout>
+      <Card className="border-0 shadow-none sm:border sm:shadow-sm">
+        <CardHeader>
+          <CardTitle className="text-xl">Welcome back</CardTitle>
+          <CardDescription>Sign in to your account to continue.</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <form onSubmit={onSubmit} className="space-y-4">
+            <div className="space-y-2">
+              <Label htmlFor="email">Email</Label>
+              <Input
+                id="email"
+                type="email"
+                required
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="password">Password</Label>
+              <Input
+                id="password"
+                type="password"
+                required
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+              />
+            </div>
+            <Button type="submit" className="w-full" disabled={loading}>
+              {loading ? "Signing in…" : "Sign in"}
+            </Button>
+          </form>
+          <p className="mt-4 text-center text-sm text-muted-foreground">
+            No account?{" "}
+            <Link to="/register" className="font-medium text-primary hover:underline">
+              Create one
+            </Link>
+          </p>
+        </CardContent>
+      </Card>
+    </AuthLayout>
   );
 }
 
-export function AuthShell({ title, children }: { title: string; children: React.ReactNode }) {
+/** Two-pane auth scaffold: brand panel + form. Shared with RegisterPage. */
+export function AuthLayout({ children }: { children: ReactNode }) {
   return (
-    <div className="flex h-full items-center justify-center p-4">
-      <div className="w-full max-w-sm rounded-xl border border-slate-200 bg-white p-6 shadow-sm">
-        <h1 className="mb-6 text-center text-xl font-semibold">{title}</h1>
-        {children}
+    <div className="grid h-full lg:grid-cols-2">
+      <div className="relative hidden flex-col justify-between bg-zinc-950 p-10 text-zinc-50 lg:flex">
+        <div className="flex items-center gap-2 font-semibold">
+          <span className="flex size-7 items-center justify-center rounded-md bg-primary text-primary-foreground">
+            <ScanText className="size-4" />
+          </span>
+          Fatourat OCR
+        </div>
+        <blockquote className="space-y-2">
+          <p className="text-lg leading-relaxed text-zinc-300">
+            Upload invoices, draw and label regions on every page, and turn
+            documents into structured data.
+          </p>
+        </blockquote>
+        <p className="text-sm text-zinc-500">Document annotation workspace</p>
+      </div>
+
+      <div className="flex items-center justify-center p-6">
+        <div className="w-full max-w-sm">{children}</div>
       </div>
     </div>
-  );
-}
-
-export function Field({
-  label,
-  type,
-  value,
-  onChange,
-}: {
-  label: string;
-  type: string;
-  value: string;
-  onChange: (v: string) => void;
-}) {
-  return (
-    <label className="block">
-      <span className="mb-1 block text-sm font-medium text-slate-700">{label}</span>
-      <input
-        type={type}
-        value={value}
-        required
-        onChange={(e) => onChange(e.target.value)}
-        className="w-full rounded-md border border-slate-300 px-3 py-2 outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
-      />
-    </label>
   );
 }

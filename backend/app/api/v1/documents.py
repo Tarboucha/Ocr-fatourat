@@ -1,22 +1,37 @@
-import io
 import os
+import shutil
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, status
-from fastapi.responses import FileResponse
-from PIL import Image, UnidentifiedImageError
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
 from app.core.deps import get_current_user
 from app.db.session import get_db
-from app.models import Document, User
-from app.schemas.document import DocumentOut
+from app.models import Document, Page, User
+from app.schemas.document import DocumentOut, PageOut
+from app.services.rasterize import rasterize
 
 router = APIRouter(prefix="/documents", tags=["documents"])
 
-_ALLOWED_MIME = {"image/png", "image/jpeg", "image/webp", "image/bmp", "image/tiff"}
+_ALLOWED_MIME = {
+    "application/pdf",
+    "image/png",
+    "image/jpeg",
+    "image/webp",
+    "image/bmp",
+    "image/tiff",
+}
+
+_EXT_BY_MIME = {
+    "application/pdf": ".pdf",
+    "image/png": ".png",
+    "image/jpeg": ".jpg",
+    "image/webp": ".webp",
+    "image/bmp": ".bmp",
+    "image/tiff": ".tiff",
+}
 
 
 async def _get_owned_document(doc_id: int, user: User, db: AsyncSession) -> Document:
@@ -24,6 +39,16 @@ async def _get_owned_document(doc_id: int, user: User, db: AsyncSession) -> Docu
     if doc is None or doc.owner_id != user.id:
         raise HTTPException(status_code=404, detail="Document not found")
     return doc
+
+
+async def get_owned_page(page_id: int, user: User, db: AsyncSession) -> Page:
+    page = await db.get(Page, page_id)
+    if page is None:
+        raise HTTPException(status_code=404, detail="Page not found")
+    doc = await db.get(Document, page.document_id)
+    if doc is None or doc.owner_id != user.id:
+        raise HTTPException(status_code=404, detail="Page not found")
+    return page
 
 
 @router.get("", response_model=list[DocumentOut])
@@ -46,28 +71,44 @@ async def upload_document(
         raise HTTPException(status_code=400, detail=f"Unsupported file type: {file.content_type}")
 
     raw = await file.read()
-    try:
-        with Image.open(io.BytesIO(raw)) as img:
-            width, height = img.size
-    except UnidentifiedImageError:
-        raise HTTPException(status_code=400, detail="File is not a valid image")
 
-    os.makedirs(settings.UPLOAD_DIR, exist_ok=True)
-    ext = os.path.splitext(file.filename or "")[1].lower() or ".bin"
-    stored_name = f"{uuid.uuid4().hex}{ext}"
-    stored_path = os.path.join(settings.UPLOAD_DIR, stored_name)
-    with open(stored_path, "wb") as fh:
+    storage_id = uuid.uuid4().hex
+    doc_dir = os.path.join(settings.UPLOAD_DIR, storage_id)
+    os.makedirs(doc_dir, exist_ok=True)
+
+    # Persist the original upload, then rasterize into per-page PNGs.
+    ext = _EXT_BY_MIME.get(file.content_type, ".bin")
+    original_path = os.path.join(doc_dir, f"original{ext}")
+    with open(original_path, "wb") as fh:
         fh.write(raw)
+
+    try:
+        rendered = rasterize(raw, file.content_type, doc_dir)
+    except Exception as exc:  # noqa: BLE001 - surface a clean 400 for bad files
+        shutil.rmtree(doc_dir, ignore_errors=True)
+        raise HTTPException(status_code=400, detail=f"Could not read file: {exc}") from exc
+
+    if not rendered:
+        shutil.rmtree(doc_dir, ignore_errors=True)
+        raise HTTPException(status_code=400, detail="File contained no pages")
 
     doc = Document(
         owner_id=user.id,
-        filename=file.filename or stored_name,
-        stored_path=stored_path,
+        filename=file.filename or f"upload{ext}",
         mime_type=file.content_type,
-        width=width,
-        height=height,
+        original_path=original_path,
+        page_count=len(rendered),
         status="uploaded",
     )
+    doc.pages = [
+        Page(
+            page_number=r.page_number,
+            stored_path=r.path,
+            width=r.width,
+            height=r.height,
+        )
+        for r in rendered
+    ]
     db.add(doc)
     await db.commit()
     await db.refresh(doc)
@@ -81,14 +122,15 @@ async def get_document(
     return await _get_owned_document(doc_id, user, db)
 
 
-@router.get("/{doc_id}/file")
-async def get_document_file(
+@router.get("/{doc_id}/pages", response_model=list[PageOut])
+async def list_pages(
     doc_id: int, user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)
 ):
-    doc = await _get_owned_document(doc_id, user, db)
-    if not os.path.exists(doc.stored_path):
-        raise HTTPException(status_code=404, detail="File missing from storage")
-    return FileResponse(doc.stored_path, media_type=doc.mime_type, filename=doc.filename)
+    await _get_owned_document(doc_id, user, db)
+    rows = await db.scalars(
+        select(Page).where(Page.document_id == doc_id).order_by(Page.page_number)
+    )
+    return list(rows)
 
 
 @router.delete("/{doc_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -96,11 +138,9 @@ async def delete_document(
     doc_id: int, user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)
 ):
     doc = await _get_owned_document(doc_id, user, db)
-    path = doc.stored_path
-    await db.delete(doc)  # cascades to boxes
+    # All page PNGs and the original live under one per-document directory.
+    doc_dir = os.path.dirname(doc.original_path)
+    await db.delete(doc)  # cascades to pages -> boxes
     await db.commit()
-    if os.path.exists(path):
-        try:
-            os.remove(path)
-        except OSError:
-            pass
+    if doc_dir and os.path.isdir(doc_dir):
+        shutil.rmtree(doc_dir, ignore_errors=True)

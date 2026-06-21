@@ -8,17 +8,24 @@ export interface Document {
   id: number;
   filename: string;
   mime_type: string;
-  width: number;
-  height: number;
+  page_count: number;
   status: string;
   created_at: string;
+}
+
+export interface Page {
+  id: number;
+  document_id: number;
+  page_number: number;
+  width: number;
+  height: number;
 }
 
 export type BoxSource = "manual" | "ocr";
 
 export interface Box {
   id: number;
-  document_id: number;
+  page_id: number;
   x: number;
   y: number;
   w: number;

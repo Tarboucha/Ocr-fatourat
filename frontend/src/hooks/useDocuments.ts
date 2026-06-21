@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "../lib/api";
-import type { Document } from "../types";
+import type { Document, Page } from "../types";
 
 export function useDocuments() {
   return useQuery({
@@ -14,6 +14,14 @@ export function useDocument(id: number) {
     queryKey: ["documents", id],
     queryFn: () => api.get<Document>(`/documents/${id}`),
     enabled: Number.isFinite(id) && id > 0,
+  });
+}
+
+export function usePages(docId: number) {
+  return useQuery({
+    queryKey: ["documents", docId, "pages"],
+    queryFn: () => api.get<Page[]>(`/documents/${docId}/pages`),
+    enabled: Number.isFinite(docId) && docId > 0,
   });
 }
 

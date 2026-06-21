@@ -1,6 +1,5 @@
 from functools import lru_cache
 
-from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -12,15 +11,14 @@ class Settings(BaseSettings):
     JWT_ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 60 * 24 * 7  # one week
     UPLOAD_DIR: str = "/data/uploads"
-    BACKEND_CORS_ORIGINS: list[str] = ["http://localhost:5173", "http://127.0.0.1:5173"]
+    # Stored as a comma-separated string. pydantic-settings tries json.loads on
+    # list-typed fields before validators run, so we keep it a str and split it
+    # ourselves via the `cors_origins` property below.
+    BACKEND_CORS_ORIGINS: str = "http://localhost:5173,http://127.0.0.1:5173"
 
-    @field_validator("BACKEND_CORS_ORIGINS", mode="before")
-    @classmethod
-    def _split_origins(cls, v):
-        # Accept a comma-separated string from the environment.
-        if isinstance(v, str):
-            return [o.strip() for o in v.split(",") if o.strip()]
-        return v
+    @property
+    def cors_origins(self) -> list[str]:
+        return [o.strip() for o in self.BACKEND_CORS_ORIGINS.split(",") if o.strip()]
 
 
 @lru_cache

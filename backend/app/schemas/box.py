@@ -25,7 +25,7 @@ class BoxOut(BoxBase):
     model_config = ConfigDict(from_attributes=True)
 
     id: int
-    document_id: int
+    page_id: int
     created_at: datetime
     updated_at: datetime
 
