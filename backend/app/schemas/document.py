@@ -22,3 +22,4 @@ class PageOut(BaseModel):
     page_number: int
     width: int
     height: int
+    ocr_status: str

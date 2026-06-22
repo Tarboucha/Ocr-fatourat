@@ -27,6 +27,10 @@ class Box(Base):
     source: Mapped[str] = mapped_column(String(16), default="manual", nullable=False)
     confidence: Mapped[float | None] = mapped_column(Float, nullable=True)
     order: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    # Provenance: which OCR run produced this box (null for manual boxes).
+    ocr_job_id: Mapped[int | None] = mapped_column(
+        ForeignKey("ocr_jobs.id", ondelete="SET NULL"), index=True, nullable=True
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )

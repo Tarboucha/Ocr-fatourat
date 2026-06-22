@@ -15,9 +15,25 @@ class OcrBox:
 
 
 @runtime_checkable
-class OcrEngine(Protocol):
-    """Pluggable OCR backend. Phase 1 ships only a stub; real engines
-    (Tesseract, PaddleOCR, cloud APIs) implement this same interface later."""
+class OcrPipeline(Protocol):
+    """A pluggable OCR backend. Implementations declare capability metadata and
+    implement detection + region recognition. Adding a pipeline = write a class
+    that satisfies this Protocol and decorate it with @register_pipeline.
+
+    A pipeline may be arbitrarily multi-stage internally (deskew → detect →
+    recognize → post-process); the registry only cares about this interface.
+    """
+
+    # Capability metadata (class attributes).
+    name: str
+    description: str
+    supports_region: bool
+    languages: list[str]
 
     def detect(self, image_path: str) -> list[OcrBox]:
+        """Full-page OCR: return all detected text regions."""
+        ...
+
+    def recognize_region(self, image_path: str, x: float, y: float, w: float, h: float) -> OcrBox:
+        """OCR a single region (crop) and return its text in page coordinates."""
         ...

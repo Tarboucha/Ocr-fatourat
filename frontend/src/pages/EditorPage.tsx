@@ -8,13 +8,21 @@ import { BoxSidebar } from "@/components/editor/BoxSidebar";
 import { KonvaStage } from "@/components/editor/KonvaStage";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
-import { useBoxes, useRunOcr, useSaveBoxes } from "@/hooks/useBoxes";
+import { useBoxes, useSaveBoxes } from "@/hooks/useBoxes";
+import { useOcr, usePipelines } from "@/hooks/useOcr";
 import { useDocument, usePages } from "@/hooks/useDocuments";
 import { usePageImage } from "@/hooks/usePageImage";
 import { useEditorStore } from "@/stores/editorStore";
-import type { BoxInput } from "@/types";
+import type { BoxInput, EditorBox } from "@/types";
 
 export function EditorPage() {
   const { id } = useParams();
@@ -30,7 +38,17 @@ export function EditorPage() {
   const { data: boxes } = useBoxes(pageId);
   const { image, error: imageError } = usePageImage(pageId || null);
   const saveBoxes = useSaveBoxes(pageId);
-  const runOcr = useRunOcr(pageId);
+
+  const { data: pipelines } = usePipelines();
+  const { runPage, runRegion, isRunning: ocrRunning } = useOcr(pageId);
+  const [pipeline, setPipeline] = useState("rapidocr");
+  useEffect(() => {
+    if (pipelines && pipelines.length && !pipelines.some((p) => p.name === pipeline)) {
+      setPipeline(pipelines[0].name);
+    }
+  }, [pipelines, pipeline]);
+  const regionSupported =
+    pipelines?.find((p) => p.name === pipeline)?.supports_region ?? false;
 
   const { tool, setTool, scale, loadBoxes, markClean, removeBox, selectedId, dirty } =
     useEditorStore();
@@ -90,16 +108,13 @@ export function EditorPage() {
     });
   }
 
-  function handleRunOcr() {
-    runOcr.mutate(undefined, {
-      onSuccess: (rows) =>
-        toast.success(
-          rows.some((b) => b.source === "ocr")
-            ? "OCR complete"
-            : "OCR ran — no text regions detected yet"
-        ),
-      onError: (err) =>
-        toast.error(err instanceof Error ? err.message : "OCR failed"),
+  function handleRunRegion(box: EditorBox) {
+    runRegion(pipeline, {
+      x: box.x,
+      y: box.y,
+      w: box.w,
+      h: box.h,
+      box_id: box.id > 0 ? box.id : undefined,
     });
   }
 
@@ -171,9 +186,23 @@ export function EditorPage() {
         </div>
       )}
 
-      <span className="ml-auto font-mono text-xs text-muted-foreground">
-        {Math.round(scale * 100)}%
-      </span>
+      <div className="ml-auto flex items-center gap-2">
+        <Select value={pipeline} onValueChange={setPipeline}>
+          <SelectTrigger className="h-8 w-36 text-xs" aria-label="OCR pipeline">
+            <SelectValue placeholder="Pipeline" />
+          </SelectTrigger>
+          <SelectContent>
+            {(pipelines ?? []).map((p) => (
+              <SelectItem key={p.name} value={p.name} className="text-xs">
+                {p.name}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        <span className="font-mono text-xs text-muted-foreground">
+          {Math.round(scale * 100)}%
+        </span>
+      </div>
     </>
   );
 
@@ -195,9 +224,11 @@ export function EditorPage() {
         </div>
         <BoxSidebar
           onSave={handleSave}
-          onRunOcr={handleRunOcr}
+          onRunOcr={() => runPage(pipeline)}
+          onRunRegion={handleRunRegion}
           saving={saveBoxes.isPending}
-          runningOcr={runOcr.isPending}
+          runningOcr={ocrRunning}
+          regionSupported={regionSupported}
         />
       </div>
     </AppShell>

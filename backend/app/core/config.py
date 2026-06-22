@@ -16,9 +16,21 @@ class Settings(BaseSettings):
     # ourselves via the `cors_origins` property below.
     BACKEND_CORS_ORIGINS: str = "http://localhost:5173,http://127.0.0.1:5173"
 
+    # OCR / async jobs
+    REDIS_URL: str = "redis://redis:6379/0"
+    DEFAULT_OCR_PIPELINE: str = "rapidocr"
+    # Seconds before a single OCR task is killed (guards against a hung image).
+    OCR_TASK_TIME_LIMIT: int = 180
+    OCR_TASK_SOFT_TIME_LIMIT: int = 150
+
     @property
     def cors_origins(self) -> list[str]:
         return [o.strip() for o in self.BACKEND_CORS_ORIGINS.split(",") if o.strip()]
+
+    @property
+    def sync_database_url(self) -> str:
+        """Sync (psycopg2) URL derived from the async URL, for the Celery worker."""
+        return self.DATABASE_URL.replace("+asyncpg", "+psycopg2")
 
 
 @lru_cache

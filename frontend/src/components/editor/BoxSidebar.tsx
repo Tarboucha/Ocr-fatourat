@@ -1,20 +1,31 @@
-import { ScanSearch, Trash2 } from "lucide-react";
+import { ScanSearch, TextSelect, Trash2 } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
 import { useEditorStore } from "@/stores/editorStore";
+import type { EditorBox } from "@/types";
 
 interface Props {
   onSave: () => void;
   onRunOcr: () => void;
+  onRunRegion: (box: EditorBox) => void;
   saving: boolean;
   runningOcr: boolean;
+  regionSupported: boolean;
 }
 
-export function BoxSidebar({ onSave, onRunOcr, saving, runningOcr }: Props) {
+export function BoxSidebar({
+  onSave,
+  onRunOcr,
+  onRunRegion,
+  saving,
+  runningOcr,
+  regionSupported,
+}: Props) {
   const { boxes, selectedId, dirty, select, updateBox, removeBox } = useEditorStore();
+  const selected = boxes.find((b) => b.id === selectedId) ?? null;
 
   return (
     <aside className="flex w-80 shrink-0 flex-col border-l bg-background">
@@ -29,8 +40,19 @@ export function BoxSidebar({ onSave, onRunOcr, saving, runningOcr }: Props) {
           className="w-full"
         >
           <ScanSearch className="size-4" />
-          {runningOcr ? "Running OCR…" : "Run OCR"}
+          {runningOcr ? "Running OCR…" : "Run page OCR"}
         </Button>
+        {regionSupported && selected && (
+          <Button
+            variant="outline"
+            onClick={() => onRunRegion(selected)}
+            disabled={runningOcr}
+            className="w-full"
+          >
+            <TextSelect className="size-4" />
+            OCR selected box
+          </Button>
+        )}
       </div>
 
       <div className="flex-1 overflow-y-auto p-3">

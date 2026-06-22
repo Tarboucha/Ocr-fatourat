@@ -17,9 +17,23 @@ dependencies = [
     "pillow>=10.3",
     "pymupdf>=1.24",
     "email-validator>=2.1",
+    "celery[redis]>=5.4",
+    "redis>=5.0",
+    "psycopg2-binary>=2.9",
 ]
 
 [project.optional-dependencies]
+# Installed in the worker image (Dockerfile.worker) — the API never imports these.
+ocr = [
+    "rapidocr-onnxruntime>=1.3",
+    "opencv-python-headless>=4.9",
+    "pytesseract>=0.3.10",
+]
+# Heavy, opt-in: enables the native `paddle` pipeline for A/B comparison.
+paddle = [
+    "paddleocr>=2.7",
+    "paddlepaddle>=2.6",
+]
 dev = [
     "pytest>=8.2",
     "httpx>=0.27",

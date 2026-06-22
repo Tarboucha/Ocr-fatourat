@@ -1,0 +1,20 @@
+FROM python:3.12-slim
+
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PIP_NO_CACHE_DIR=1
+
+WORKDIR /app
+
+# System deps: Tesseract (+ fra/ara language data) for the tesseract pipeline.
+# RapidOCR ships its ONNX models in the wheel, so it needs no system libs.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    tesseract-ocr tesseract-ocr-fra tesseract-ocr-ara \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install base + OCR extra (RapidOCR, OpenCV-headless, pytesseract).
+# To also enable the heavy native `paddle` pipeline, change to `.[ocr,paddle]`.
+COPY . .
+RUN pip install --upgrade pip && pip install --no-cache-dir ".[ocr]"
+
+CMD ["celery", "-A", "app.worker.celery_app", "worker", "--loglevel=info", "--concurrency=1"]

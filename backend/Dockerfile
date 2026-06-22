@@ -15,7 +15,8 @@ RUN pip install --upgrade pip && pip install --no-cache-dir \
     "asyncpg>=0.29" "alembic>=1.13" "python-jose[cryptography]>=3.3" \
     "bcrypt>=4.1" "pydantic>=2.7" "pydantic-settings>=2.3" \
     "python-multipart>=0.0.9" "pillow>=10.3" "pymupdf>=1.24" \
-    "email-validator>=2.1"
+    "email-validator>=2.1" "celery[redis]>=5.4" "redis>=5.0" \
+    "psycopg2-binary>=2.9"
 
 # Now copy source and install the local package only (deps already satisfied).
 COPY . .

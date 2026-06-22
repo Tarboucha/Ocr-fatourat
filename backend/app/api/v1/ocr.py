@@ -1,53 +1,111 @@
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.v1.documents import get_owned_page
+from app.core.config import settings
 from app.core.deps import get_current_user
 from app.db.session import get_db
-from app.models import Box, User
-from app.schemas.box import BoxOut
-from app.services.ocr import get_ocr_engine
+from app.models import OcrJob, User
+from app.schemas.ocr import OcrJobOut, PipelineInfoOut, RunOcrIn, RunRegionIn
+from app.services.ocr import available_pipelines, is_registered
+from app.worker.celery_app import celery_app
 
-router = APIRouter(prefix="/pages/{page_id}/ocr", tags=["ocr"])
+router = APIRouter(tags=["ocr"])
+
+_ACTIVE = ("queued", "processing")
 
 
-@router.post("", response_model=list[BoxOut])
-async def run_ocr(
+def _resolve_pipeline(name: str | None) -> str:
+    chosen = name or settings.DEFAULT_OCR_PIPELINE
+    if not is_registered(chosen):
+        raise HTTPException(status_code=400, detail=f"Unknown OCR pipeline: {chosen}")
+    return chosen
+
+
+@router.get("/ocr/pipelines", response_model=list[PipelineInfoOut])
+async def list_pipelines(_user: User = Depends(get_current_user)):
+    return available_pipelines()
+
+
+@router.post("/pages/{page_id}/ocr", response_model=OcrJobOut, status_code=status.HTTP_202_ACCEPTED)
+async def run_page_ocr(
     page_id: int,
+    payload: RunOcrIn,
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """Run the configured OCR engine on a page and persist detections as
-    `source=ocr` boxes.
-
-    Phase 1 uses StubOcrEngine, which returns [] — the path is fully wired but
-    produces no boxes until a real engine is plugged in.
-    """
     page = await get_owned_page(page_id, user, db)
+    pipeline = _resolve_pipeline(payload.pipeline)
 
-    engine = get_ocr_engine()
-    detections = engine.detect(page.stored_path)
-
-    created = [
-        Box(
-            page_id=page_id,
-            x=d.x,
-            y=d.y,
-            w=d.w,
-            h=d.h,
-            text=d.text,
-            source="ocr",
-            confidence=d.confidence,
-            order=i,
+    # Guard: refuse a duplicate page run for the same pipeline already in flight.
+    active = await db.scalar(
+        select(OcrJob).where(
+            OcrJob.page_id == page.id,
+            OcrJob.kind == "page",
+            OcrJob.pipeline == pipeline,
+            OcrJob.status.in_(_ACTIVE),
         )
-        for i, d in enumerate(detections)
-    ]
-    if created:
-        db.add_all(created)
-        await db.commit()
-
-    rows = await db.scalars(
-        select(Box).where(Box.page_id == page_id).order_by(Box.order, Box.id)
     )
-    return list(rows)
+    if active is not None:
+        raise HTTPException(status_code=409, detail="An OCR run is already in progress")
+
+    job = OcrJob(page_id=page.id, kind="page", pipeline=pipeline, status="queued")
+    db.add(job)
+    page.ocr_status = "queued"
+    await db.commit()
+    await db.refresh(job)
+
+    celery_app.send_task("ocr.page", args=[job.id])
+    return job
+
+
+@router.post(
+    "/pages/{page_id}/ocr/region",
+    response_model=OcrJobOut,
+    status_code=status.HTTP_202_ACCEPTED,
+)
+async def run_region_ocr(
+    page_id: int,
+    payload: RunRegionIn,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    page = await get_owned_page(page_id, user, db)
+    pipeline = _resolve_pipeline(payload.pipeline)
+
+    info = next((p for p in available_pipelines() if p.name == pipeline), None)
+    if info is not None and not info.supports_region:
+        raise HTTPException(
+            status_code=400, detail=f"Pipeline '{pipeline}' does not support region OCR"
+        )
+
+    job = OcrJob(
+        page_id=page.id,
+        kind="region",
+        pipeline=pipeline,
+        status="queued",
+        x=payload.x,
+        y=payload.y,
+        w=payload.w,
+        h=payload.h,
+        box_id=payload.box_id,
+    )
+    db.add(job)
+    await db.commit()
+    await db.refresh(job)
+
+    celery_app.send_task("ocr.region", args=[job.id])
+    return job
+
+
+@router.get("/ocr/jobs/{job_id}", response_model=OcrJobOut)
+async def get_job(
+    job_id: int, user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)
+):
+    job = await db.get(OcrJob, job_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail="Job not found")
+    # Ownership: the job's page must belong to the user (raises 404 otherwise).
+    await get_owned_page(job.page_id, user, db)
+    return job

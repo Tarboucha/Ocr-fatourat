@@ -63,3 +63,26 @@ export interface BoxInput {
   confidence: number | null;
   order: number;
 }
+
+export interface PipelineInfo {
+  name: string;
+  description: string;
+  supports_region: boolean;
+  languages: string[];
+}
+
+export type OcrJobStatus = "queued" | "processing" | "done" | "failed";
+
+export interface OcrJob {
+  id: number;
+  page_id: number;
+  kind: "page" | "region";
+  pipeline: string;
+  status: OcrJobStatus;
+  error: string | null;
+  box_id: number | null;
+  result_text: string | null;
+  result_confidence: number | null;
+  box_count: number | null;
+  created_at: string;
+}
