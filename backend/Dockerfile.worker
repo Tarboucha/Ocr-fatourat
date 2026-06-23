@@ -6,15 +6,32 @@ ENV PYTHONUNBUFFERED=1 \
 
 WORKDIR /app
 
-# System deps: Tesseract (+ fra/ara language data) for the tesseract pipeline.
-# RapidOCR ships its ONNX models in the wheel, so it needs no system libs.
+# System deps:
+#  - Tesseract (+ fra/ara language data) for the tesseract pipeline.
+#  - libgl1 + libglib2.0-0: OpenCV (RapidOCR/Paddle) loads cv2 and needs
+#    libGL.so.1 / libgthread — absent from the slim base.
+#  - libgomp1: PaddlePaddle's OpenMP runtime.
 RUN apt-get update && apt-get install -y --no-install-recommends \
     tesseract-ocr tesseract-ocr-fra tesseract-ocr-ara \
+    libgl1 libglib2.0-0 libgomp1 \
     && rm -rf /var/lib/apt/lists/*
 
-# Install base + OCR extra (RapidOCR, OpenCV-headless, pytesseract).
-# To also enable the heavy native `paddle` pipeline, change to `.[ocr,paddle]`.
+# Install all dependencies in their own cached layer (keyed to pyproject), so
+# editing app code does NOT reinstall the heavy paddle stack. We list the
+# top-level packages explicitly (pip resolves their transitive deps); then the
+# local package is installed --no-deps after the source copy.
+COPY pyproject.toml ./
+RUN pip install --upgrade pip && pip install --no-cache-dir \
+    "fastapi>=0.111" "uvicorn[standard]>=0.30" "sqlalchemy[asyncio]>=2.0" \
+    "asyncpg>=0.29" "alembic>=1.13" "python-jose[cryptography]>=3.3" \
+    "bcrypt>=4.1" "pydantic>=2.7" "pydantic-settings>=2.3" \
+    "python-multipart>=0.0.9" "pillow>=10.3" "pymupdf>=1.24" \
+    "email-validator>=2.1" "celery[redis]>=5.4" "redis>=5.0" \
+    "psycopg2-binary>=2.9" "httpx>=0.27" \
+    "rapidocr-onnxruntime>=1.3" "opencv-python-headless>=4.9" "pytesseract>=0.3.10" \
+    "paddleocr>=2.7" "paddlepaddle>=2.6" "paddlex[ocr]>=3.7"
+
 COPY . .
-RUN pip install --upgrade pip && pip install --no-cache-dir ".[ocr]"
+RUN pip install --no-deps .
 
 CMD ["celery", "-A", "app.worker.celery_app", "worker", "--loglevel=info", "--concurrency=1"]

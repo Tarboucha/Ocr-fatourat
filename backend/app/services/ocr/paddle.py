@@ -12,48 +12,58 @@ class PaddleOcrPipeline:
     """Native PaddleOCR (PP-OCR det+rec). Heavier than RapidOCR (pulls
     paddlepaddle) but useful to A/B against rapidocr and to access the latest
     PaddleOCR models. Heavy imports are deferred to instantiation; the module
-    only registers (see services/ocr/__init__.py for the optional-import guard)."""
+    only registers.
+
+    Targets PaddleOCR 3.x: the `.predict()` API returns per-image dicts with
+    `rec_texts` / `rec_scores` / `rec_polys`. `enable_mkldnn=False` avoids a
+    PIR/oneDNN runtime bug on slim CPU builds."""
 
     name = "paddle"
-    description = "PaddleOCR (native PP-OCR) — heavier, latest models"
+    description = "PaddleOCR (native PP-OCR 3.x) — heavier, latest models"
     supports_region = True
     languages = ["en", "fr", "ar", "ch"]
 
     def __init__(self) -> None:
         from paddleocr import PaddleOCR
 
-        self._engine = PaddleOCR(use_angle_cls=True, lang="en", show_log=False)
+        self._engine = PaddleOCR(
+            lang="en",
+            use_doc_orientation_classify=False,
+            use_doc_unwarping=False,
+            use_textline_orientation=False,
+            enable_mkldnn=False,
+        )
 
     def _run(self, image) -> list[OcrBox]:
-        result = self._engine.ocr(image, cls=True)
         boxes: list[OcrBox] = []
-        # PaddleOCR returns [[ [quad, (text, score)], ... ]] (per-image list).
-        for page in result or []:
-            for line in page or []:
-                quad, (text, score) = line
-                x, y, w, h = quad_to_aabb(quad)
+        for r in self._engine.predict(image):
+            texts = r.get("rec_texts") or []
+            scores = r.get("rec_scores") or []
+            polys = r.get("rec_polys")
+            if polys is None:
+                polys = r.get("dt_polys") or []
+            for i, text in enumerate(texts):
+                if i >= len(polys):
+                    break
+                x, y, w, h = quad_to_aabb(polys[i])
+                score = scores[i] if i < len(scores) else None
                 boxes.append(
-                    OcrBox(
-                        x=x, y=y, w=w, h=h, text=text,
-                        confidence=float(score) if score is not None else None,
-                    )
+                    OcrBox(x=x, y=y, w=w, h=h, text=text,
+                           confidence=float(score) if score is not None else None)
                 )
         return boxes
 
     def detect(self, image_path: str) -> list[OcrBox]:
         import numpy as np
 
-        image = np.array(Image.open(image_path).convert("RGB"))
-        return self._run(image)
+        return self._run(np.array(Image.open(image_path).convert("RGB")))
 
     def recognize_region(self, image_path: str, x: float, y: float, w: float, h: float) -> OcrBox:
         import numpy as np
 
         img = Image.open(image_path).convert("RGB")
         x0, y0, x1, y1 = clamp_region(x, y, w, h, img.width, img.height)
-        crop = np.array(img.crop((x0, y0, x1, y1)))
-        found = self._run(crop)
+        found = self._run(np.array(img.crop((x0, y0, x1, y1))))
         text = " ".join(b.text for b in found).strip()
         confs = [b.confidence for b in found if b.confidence is not None]
-        conf = min(confs) if confs else None
-        return OcrBox(x=x, y=y, w=w, h=h, text=text, confidence=conf)
+        return OcrBox(x=x, y=y, w=w, h=h, text=text, confidence=min(confs) if confs else None)

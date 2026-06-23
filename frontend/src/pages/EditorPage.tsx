@@ -5,6 +5,7 @@ import { toast } from "sonner";
 
 import { AppShell } from "@/components/layout/AppShell";
 import { BoxSidebar } from "@/components/editor/BoxSidebar";
+import { ExtractionDialog } from "@/components/editor/ExtractionDialog";
 import { KonvaStage } from "@/components/editor/KonvaStage";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
@@ -187,6 +188,7 @@ export function EditorPage() {
       )}
 
       <div className="ml-auto flex items-center gap-2">
+        <ExtractionDialog documentId={docId} />
         <Select value={pipeline} onValueChange={setPipeline}>
           <SelectTrigger className="h-8 w-36 text-xs" aria-label="OCR pipeline">
             <SelectValue placeholder="Pipeline" />

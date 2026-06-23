@@ -44,20 +44,22 @@ Overview of the OCR web app. Legend: ✅ implemented · ⛏️ planned (see [PLA
 ## 2. Data model (✅ exists · ⛏️ added for OCR)
 
 ```
-User 1───* Document 1───* Page 1───* Box
-                              │     │      x,y,w,h, text, source(manual|ocr),
-                              │     │      confidence, order (+ label → bbox plan)
-                              │     │      + ocr_job_id ⛏️  FK→OcrJob (SET NULL)  ← provenance
-                              │     │
-                              │     *───* OcrJob ⛏️   ← persistent, authoritative run record
-                              │            kind(page|region) · pipeline(name) ·
-                              │            status(queued|processing|done|failed) · error ·
-                              │            region x,y,w,h · result_text/result_conf ·
-                              │            box_count · task_id · created/started/finished_at
+User 1─* Document 1─* Page 1─* Box
+                         │    │     x,y,w,h, text, source(manual|ocr), confidence, order
+                         │    │     + ocr_job_id  FK→OcrJob (SET NULL)        ← OCR provenance
+                         │    │     + table_id,row,col,row_span,col_span,is_header ⛏️ ← cell = box
+                         │    │
+                         │    *─* OcrJob   kind(page|region|table ⛏️) · pipeline · status ·
+                         │    │            error · region xywh · result_text/conf · box_count · task_id
+                         │    *─* Table ⛏️  order · x,y,w,h · n_rows · n_cols · recognizer
+                         │              (a cell is a Box with table_id+row+col set)
+                         │
+                         *─* (Document) Extraction   extractor · status · data(JSONB InvoiceDocument) · needs_review
  (cascade delete all the way down)
-Page: page_number, stored_path(PNG), width, height, ocr_status ⛏️ (denormalized cache)
-Document: filename, mime_type, original_path, page_count
+Page: …, ocr_status (denormalized cache)
 ```
+
+**Three layers over one box model:** OCR (flat `source=ocr` boxes) → **Structure** (`Table` + cell boxes carrying `row/col`) → **Extraction** (semantic `InvoiceDocument` JSON, reading cells). The cell-as-Box design keeps structure in the same primitive the canvas renders, so both pipelines share it. ⛏️ = the table-structure layer (see [PLAN-table-structure.md](PLAN-table-structure.md)).
 
 - All box geometry is in **page-PNG pixel space** — one coordinate system shared by the canvas, stored boxes, and OCR output.
 - **`OcrJob` is the source of truth** for an OCR run (async, multi-pipeline, page+region, survives restarts). Ownership is checked via `OcrJob → Page → Document → owner_id` — no reliance on Celery's ephemeral, unauthenticated result store.

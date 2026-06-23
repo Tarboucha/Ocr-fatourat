@@ -86,3 +86,25 @@ export interface OcrJob {
   box_count: number | null;
   created_at: string;
 }
+
+export interface ExtractorInfo {
+  name: string;
+  description: string;
+  needs_ocr: boolean;
+  languages: string[];
+}
+
+export type ExtractionStatus = "queued" | "processing" | "done" | "failed";
+
+export interface Extraction {
+  id: number;
+  document_id: number;
+  extractor: string;
+  status: ExtractionStatus;
+  error: string | null;
+  schema_version: string | null;
+  needs_review: boolean;
+  // The InvoiceDocument JSON (shape mirrors backend schemas/invoice.py).
+  data: Record<string, unknown> | null;
+  created_at: string;
+}

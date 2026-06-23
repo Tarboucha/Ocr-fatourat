@@ -61,9 +61,12 @@ services:
       UPLOAD_DIR: ${UPLOAD_DIR:-/data/uploads}
       REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
       DEFAULT_OCR_PIPELINE: ${DEFAULT_OCR_PIPELINE:-rapidocr}
+      # Skip PaddleX's per-cold-start connectivity check to the model hosters.
+      PADDLE_PDX_DISABLE_MODEL_SOURCE_CHECK: "True"
     volumes:
       - uploads:/data/uploads
-      - ocr-models:/root/.paddleocr
+      # PaddleOCR 3.x caches downloaded models here; persist them across restarts.
+      - ocr-models:/root/.paddlex
     # Same shared image source as backend; runs the Celery worker instead.
 
   frontend:

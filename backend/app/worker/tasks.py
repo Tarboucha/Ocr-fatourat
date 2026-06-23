@@ -3,8 +3,9 @@ from datetime import datetime, timezone
 from sqlalchemy import select
 
 from app.db.session import get_sync_sessionmaker
-from app.models import Box, OcrJob, Page
+from app.models import Box, Document, Extraction, OcrJob, Page
 from app.services.ocr import get_pipeline
+from app.services.ocr.base import OcrBox
 from app.worker.celery_app import celery_app
 
 
@@ -128,3 +129,69 @@ def _fail(db, job: OcrJob, page: Page | None, message: str) -> None:
     if page is not None and job.kind == "page":
         page.ocr_status = "failed"
     db.commit()
+
+
+# Extraction (esp. PP-StructureV3) is far heavier than OCR and its first run
+# downloads a large model set, so it gets a generous limit of its own rather
+# than the short OCR limit.
+@celery_app.task(name="extract.document", time_limit=1800, soft_time_limit=1500)
+def extract_document(extraction_id: int) -> None:
+    from app.services.extract import get_extractor, normalize_invoice
+
+    Session = get_sync_sessionmaker()
+    with Session() as db:
+        ext = db.get(Extraction, extraction_id)
+        if ext is None:
+            return
+        doc = db.get(Document, ext.document_id)
+        if doc is None:
+            ext.status = "failed"
+            ext.error = "Document not found"
+            ext.finished_at = _now()
+            db.commit()
+            return
+
+        ext.status = "processing"
+        ext.started_at = _now()
+        db.commit()
+
+        try:
+            extractor = get_extractor(ext.extractor)
+            pages = db.scalars(
+                select(Page).where(Page.document_id == doc.id).order_by(Page.page_number)
+            ).all()
+            image_paths = [p.stored_path for p in pages]
+
+            boxes_by_page: list[list[OcrBox]] = []
+            if extractor.needs_ocr:
+                for p in pages:
+                    rows = db.scalars(
+                        select(Box)
+                        .where(Box.page_id == p.id, Box.source == "ocr")
+                        .order_by(Box.order, Box.id)
+                    ).all()
+                    boxes_by_page.append(
+                        [OcrBox(x=b.x, y=b.y, w=b.w, h=b.h, text=b.text or "",
+                                confidence=b.confidence, id=b.id) for b in rows]
+                    )
+                if not any(boxes_by_page):
+                    raise RuntimeError("No OCR results found — run OCR on the pages first")
+            else:
+                boxes_by_page = [[] for _ in pages]
+
+            invoice = normalize_invoice(extractor.extract(image_paths, boxes_by_page))
+
+            ext.data = invoice.model_dump()
+            ext.schema_version = invoice.schema_version
+            ext.needs_review = invoice.validation.needs_review
+            ext.status = "done"
+            ext.finished_at = _now()
+            db.commit()
+        except Exception as exc:  # noqa: BLE001
+            db.rollback()
+            ext = db.get(Extraction, extraction_id)
+            if ext is not None:
+                ext.status = "failed"
+                ext.error = str(exc)[:2000]
+                ext.finished_at = _now()
+                db.commit()

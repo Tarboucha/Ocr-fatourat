@@ -12,6 +12,9 @@ class OcrBox:
     h: float
     text: str
     confidence: float | None = None
+    # Set when the box is loaded from a persisted Box row, so extractors can
+    # record provenance (which boxes a field came from). OCR engines leave None.
+    id: int | None = None
 
 
 @runtime_checkable

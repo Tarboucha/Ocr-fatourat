@@ -23,6 +23,12 @@ class Settings(BaseSettings):
     OCR_TASK_TIME_LIMIT: int = 180
     OCR_TASK_SOFT_TIME_LIMIT: int = 150
 
+    # Invoice extraction
+    DEFAULT_EXTRACTOR: str = "heuristic"
+    EXTRACT_VLM_BASE_URL: str = "https://api.openai.com/v1"
+    EXTRACT_VLM_MODEL: str = "gpt-4o-mini"
+    EXTRACT_VLM_API_KEY: str = ""
+
     @property
     def cors_origins(self) -> list[str]:
         return [o.strip() for o in self.BACKEND_CORS_ORIGINS.split(",") if o.strip()]
